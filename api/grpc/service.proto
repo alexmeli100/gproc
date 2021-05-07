@@ -1,0 +1,73 @@
+syntax = "proto3";
+
+package pb;
+
+
+service WorkerService {
+  rpc Register     (JobRequest         ) returns (JobStatus       ) {}
+  rpc Start        (StartRequest       ) returns (stream JobStatus) {}
+  rpc StatusStream (StatusStreamRequest) returns (stream JobStatus) {}
+  rpc Status       (StatusRequest      ) returns (JobStatus       ) {}
+  rpc Stop         (StopRequest        ) returns (JobStatus       ) {}
+  rpc GetOuput     (GetOutputRequest   ) returns (stream JobOutput) {}
+}
+
+message StartRequest {
+  string id = 1;
+}
+
+message StatusRequest {
+  string id = 1;
+}
+
+message StopRequest {
+  string id = 1;
+}
+
+message GetOutputRequest {
+  string id = 1;
+}
+
+message StatusStreamRequest {
+  string id = 1;
+}
+
+message JobOutput {
+  string output = 1;
+  OutputChannel channel = 2;
+}
+
+message JobRequest {
+  string name          = 1;
+  repeated string args = 2;
+  repeated string env  = 3;
+  string workingDir    = 4;
+}
+
+message JobStatus {
+  string id              = 1;
+  int64 PID              = 2;
+  string cmd             = 3;
+  string workingDir      = 4;
+  JobState state         = 5;
+  int64 exitCode         = 6;
+  string error           = 7;
+  int64 runTime          = 8;
+  int64 startTime        = 9;
+  int64 stopTime         = 10;
+}
+
+enum OutputChannel {
+  StdOut = 0;
+  StdErr = 1;
+}
+
+enum JobState {
+  Inititial   = 0;
+  Starting    = 1;
+  Running     = 2;
+  Stopping    = 3;
+  Finished    = 4;
+  Interrupted = 5;
+  Fatal       = 6;
+}
