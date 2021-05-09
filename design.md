@@ -37,7 +37,7 @@ The supervisor is responsible for managing all jobs in the system. It provides a
 * `IsFinalState()` - true if the process is in a final state
 
 ### Output streaming
-Each process has a `StreamBuffer` for managing process output. `StreamBuffer` is an `io.Writer` that has a line buffer for buffering lines from the process. Additionally, it contains a channel where new lines are sent to. The caller can use this channel to listen for new output or call `StreamBuffer.Lines()` to get all previous output stored in the line buffer.
+Each process has a `StreamOutput` for managing process output. `StreamOutput` is an `io.Writer` that has a channel where new lines of output from the process are sent to. The caller should use this channel to listen for output from the process. The supervisor also stores each line of output comming from the `StreamOutput` for each job. These can be retrieved at any time by calling `GetOutput(...)`
 
 ### Process options
 `Options` is a functional option that can be provided to `NewProcess(...)` to customize the process. The only options provided are `WithStdOutWriters(writers...io.Writer)` and `WithStdErrWriters(writers...io.Writer)`. These provide additional writers to the process standard output and standard error respectively. By default all process output goes to the `StreamBuffer`
