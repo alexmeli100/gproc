@@ -55,6 +55,6 @@ enum OutputChannel {
 enum JobState {
   Starting    = 0; // process is starting
   Running     = 1; // process is running
-  Finished    = 3; // process has finished running
-  Fatal       = 5; // process failed to start
+  Finished    = 2; // process has finished running
+  Fatal       = 3; // process failed to start
 }
