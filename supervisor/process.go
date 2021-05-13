@@ -40,6 +40,8 @@ func (s ProcessState) String() string {
 		return "stopping"
 	case Finished:
 		return "finished"
+	case Interrupted:
+		return "interrupted"
 	case Fatal:
 		return "fatal"
 	default:
@@ -57,9 +59,9 @@ type Process struct {
 	stdErr       *StreamOutput
 	state        ProcessState
 	status       Status
-	statusChan   chan *Status
+	statusChan   chan Status
 	done         chan struct{}
-	stateLock    *sync.Mutex
+	stateLock    *sync.RWMutex
 }
 
 // Status is the status of a process
@@ -98,7 +100,7 @@ func NewProcess(name string, args []string) *Process {
 		status:       status,
 		done:         make(chan struct{}),
 		Mutex:        &sync.Mutex{},
-		stateLock:    &sync.Mutex{},
+		stateLock:    &sync.RWMutex{},
 		streamStdOut: stdOutChan,
 		streamStdErr: stdErrChan,
 		stdOut:       stdOut,
@@ -111,21 +113,15 @@ func NewProcess(name string, args []string) *Process {
 
 // setState sets the state of a process
 func (p *Process) setState(state ProcessState) {
+	p.stateLock.Lock()
+	defer p.stateLock.Unlock()
+
 	// cannot the set the state of a finished process
 	if p.state == Finished || p.state == state {
 		return
 	}
 
-	p.stateLock.Lock()
-	defer p.stateLock.Unlock()
-
-	// the next state can only be Starting if the state is Initial
-	if p.state == Initial {
-		p.state = Starting
-	} else {
-		p.state = state
-	}
-
+	p.state = state
 	p.status.State = p.state
 }
 
@@ -139,23 +135,23 @@ func (p *Process) IsInitialState() bool {
 
 // IsRunningState is true if process is Starting or Running
 func (p *Process) IsRunningState() bool {
-	p.stateLock.Lock()
-	defer p.stateLock.Unlock()
+	p.stateLock.RLock()
+	defer p.stateLock.RUnlock()
 
 	return p.state == Running || p.state == Starting
 }
 
 // IsFinalState is true if process is Finished or Interrupted
 func (p *Process) IsFinalState() bool {
-	p.stateLock.Lock()
-	defer p.stateLock.Unlock()
+	p.stateLock.RLock()
+	defer p.stateLock.RUnlock()
 
 	return p.state == Finished || p.state == Interrupted
 }
 
 // Start starts the process and returns a channel the caller can
 // use to retrieve the final status
-func (p *Process) Start() <-chan *Status {
+func (p *Process) Start() <-chan Status {
 	p.Lock()
 	defer p.Unlock()
 
@@ -163,7 +159,7 @@ func (p *Process) Start() <-chan *Status {
 		return p.statusChan
 	}
 
-	p.statusChan = make(chan *Status, 1)
+	p.statusChan = make(chan Status, 1)
 	p.setState(Starting)
 
 	p.cmd.Stdout = p.stdOut
@@ -179,7 +175,7 @@ func (p *Process) Start() <-chan *Status {
 		p.status.StopTime = time.Now().UnixNano()
 		p.status.Error = err
 		p.setState(Fatal)
-		p.statusChan <- &p.status
+		p.statusChan <- p.status
 		close(p.done)
 
 		return p.statusChan
@@ -234,11 +230,11 @@ func (p *Process) wait() {
 }
 
 // GetStatus returns the current status of the process
-func (p *Process) GetStatus() *Status {
+func (p *Process) GetStatus() Status {
 	p.Lock()
 	defer p.Unlock()
 
-	return &p.status
+	return p.status
 }
 
 // Stop stops a process by sending it's group a SIGTERM signal
@@ -347,6 +343,7 @@ func NewStreamOutput(streamChan chan string, opts ...StreamOutputOptions) *Strea
 	return s
 }
 
+// TODO: stream bytes instead of lines
 // Write implements the io.Writer interface for StreamOutput
 func (s *StreamOutput) Write(b []byte) (int, error) {
 	n := len(b)

@@ -51,7 +51,7 @@ func NewSupervisor(logger *zap.Logger) *Supervisor {
 // JobStatus is the status of a job with it's id
 type JobStatus struct {
 	Id     string
-	Status *Status
+	Status Status
 }
 
 // logWatchers is a wrapper to manage output streaming for each job.
@@ -120,7 +120,7 @@ func (s *Supervisor) Start(cmd string, args []string) (*JobStatus, error) {
 	sc := p.Start()
 
 	s.wg.Add(1)
-	go func(id string, p *Process, c <-chan *Status) {
+	go func(id string, p *Process, c <-chan Status) {
 		defer s.wg.Done()
 		s.run(id, p, sc)
 	}(jobId, p, sc)
@@ -143,7 +143,7 @@ func (s *Supervisor) Start(cmd string, args []string) (*JobStatus, error) {
 
 // run listens for output from the running job through it's StdOut and StdErr channels.
 // Each line of output is first added to the job's line buffer before it's sent to the log watchers.
-func (s *Supervisor) run(id string, proc *Process, sc <-chan *Status) {
+func (s *Supervisor) run(id string, proc *Process, sc <-chan Status) {
 	go func(id string, p *Process) {
 		for {
 			select {
@@ -221,10 +221,7 @@ func (s *Supervisor) Stop(id string) (*JobStatus, error) {
 		return nil, errors.Wrap(err, "cannot stop process")
 	}
 
-	// Wait for process to exit completely
-	<-job.Done()
-
-	// return final status to caller
+	// return current status to caller
 	st := job.GetStatus()
 	return &JobStatus{id, st}, nil
 }
@@ -260,7 +257,7 @@ func (s *Supervisor) Status(id string) (*JobStatus, error) {
 // GetOutput returns the line buffer for the job
 func (s *Supervisor) GetOutput(id string) ([]LogOutput, error) {
 	s.access.Lock()
-	s.access.Unlock()
+	defer s.access.Unlock()
 
 	lines, ok := s.ouputBuffers[id]
 

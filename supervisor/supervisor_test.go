@@ -33,10 +33,22 @@ func TestSupervisorSimpleStartStop(t *testing.T) {
 		t.Fatalf("stop failed with error %s", err.Error())
 	}
 
+	wait, err := s.Wait(st.Id)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	<-wait
+	st, err = s.Status(st.Id)
+
+	if err != nil {
+		t.Fatalf("expected nil error, Got %s", err.Error())
+	}
+
 	if st.Status.State != Finished {
 		t.Errorf("Expected \"Finished\" for job. Got \"%d\"", st.Status.State)
 	}
-
 }
 
 func TestInvalidProcess(t *testing.T) {
@@ -242,6 +254,20 @@ func TestSupervisorStopDeadProc(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	wait, err = s.Wait(st.Id)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	<-wait
+
+	st, err = s.Status(st.Id)
+
+	if err != nil {
+		t.Fatalf("expected nil error, Got %s", err.Error())
+	}
+
 	if st.Status.State != Finished {
 		t.Errorf("Expected \"Finished\" state. Got \"%s\"", st.Status.State.String())
 	}
@@ -264,6 +290,24 @@ func TestSupervisorStopDeadProc(t *testing.T) {
 
 	if err != nil {
 		t.Fatalf("stop failed with error %s", err.Error())
+	}
+
+	wait, err = s.Wait(st.Id)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	<-wait
+
+	st, err = s.Status(st.Id)
+
+	if err != nil {
+		t.Fatalf("expected nil error, Got %s", err.Error())
+	}
+
+	if st.Status.State != Finished {
+		t.Errorf("Expected \"Finished\" state. Got \"%s\"", st.Status.State.String())
 	}
 
 	// stop the job again
