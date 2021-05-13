@@ -10,10 +10,6 @@ service WorkerService {
   rpc GetOuput     (GetOutputRequest   ) returns (stream JobOutput) {}
 }
 
-message StartRequest {
-  string id = 1;
-}
-
 message StatusRequest {
   string id = 1;
 }
@@ -53,8 +49,7 @@ enum OutputChannel {
 }
 
 enum JobState {
-  Starting    = 0; // process is starting
-  Running     = 1; // process is running
-  Finished    = 3; // process has finished running
-  Fatal       = 5; // process failed to start
+  Running     = 0; // process is running
+  Finished    = 1; // process has finished running
+  Fatal       = 2; // process failed to start
 }
