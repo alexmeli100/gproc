@@ -50,7 +50,7 @@ func TestInvalidProcess(t *testing.T) {
 	}
 
 	// test with invalid argument to valid command
-	// the ls command should run run and return a positive exit code
+	// the ls command should run and return a positive exit code
 	st, err := s.Start("ls", []string{"/some/random/path"})
 
 	if err != nil {

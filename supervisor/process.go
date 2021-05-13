@@ -74,7 +74,7 @@ type Status struct {
 	StopByUser bool
 }
 
-// NewProcess creates and returns a new process without runnung it
+// NewProcess creates and returns a new process without running it
 func NewProcess(name string, args []string) *Process {
 	a := strings.Join(args, " ")
 

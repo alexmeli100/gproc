@@ -98,7 +98,7 @@ func (l *logWatchers) removeLogWatcher(c chan LogOutput) {
 }
 
 // Start starts a job and returns the current status. An ErrExecNotFound
-// is returned the executable cannot be found by the system.
+// is returned if the executable cannot be found by the system.
 // A unique id is generated for the job and returned in JobStatus
 func (s *Supervisor) Start(cmd string, args []string) (*JobStatus, error) {
 	if cmd == "" {
