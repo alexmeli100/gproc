@@ -30,8 +30,8 @@ const (
 type Process struct {
 	access       *sync.RWMutex
 	cmd          *exec.Cmd
-	streamStdOut chan byte
-	streamStdErr chan byte
+	streamStdOut chan []byte
+	streamStdErr chan []byte
 	stdOut       *StreamOutput
 	stdErr       *StreamOutput
 	status       Status
@@ -50,8 +50,8 @@ type Status struct {
 	StopByUser bool
 }
 
-// NewProcess creates and returns a new process without running it
-func NewProcess(name string, args []string) *Process {
+// NewProcess creates a new process and starts it immediately
+func NewProcess(name string, args []string) (*Process, error) {
 	a := strings.Join(args, " ")
 
 	status := Status{
@@ -61,15 +61,15 @@ func NewProcess(name string, args []string) *Process {
 
 	cmd := exec.Command(name, args...)
 
-	stdOutChan := make(chan byte, DefaultStreamChanSize)
-	stdErrChan := make(chan byte, DefaultStreamChanSize)
+	stdOutChan := make(chan []byte, DefaultStreamChanSize)
+	stdErrChan := make(chan []byte, DefaultStreamChanSize)
 	stdOut := NewStreamOutput(stdOutChan)
 	stdErr := NewStreamOutput(stdErrChan)
 	cmd.Stdout = stdOut
 	cmd.Stderr = stdErr
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
-	process := &Process{
+	p := &Process{
 		cmd:          cmd,
 		status:       status,
 		done:         make(chan struct{}),
@@ -80,22 +80,6 @@ func NewProcess(name string, args []string) *Process {
 		stdErr:       stdErr,
 	}
 
-	return process
-}
-
-// Wait waits for the process to finish running and returns the final status
-func (p *Process) Wait() Status {
-	<-p.Done()
-
-	return p.GetStatus()
-}
-
-// Start starts the process and returns a channel the caller can
-// use to retrieve the final status
-func (p *Process) Start() {
-	p.access.Lock()
-	defer p.access.Unlock()
-
 	p.status.StartTime = time.Now()
 	if err := p.cmd.Start(); err != nil {
 		// process failed to start.
@@ -105,12 +89,21 @@ func (p *Process) Start() {
 		p.status.State = Fatal
 		close(p.done)
 
-		return
+		return p, err
 	}
 
 	p.status.PID = p.cmd.Process.Pid
 	p.status.State = Running
 	go p.wait()
+
+	return p, nil
+}
+
+// Wait waits for the process to finish running and returns the final status
+func (p *Process) Wait() Status {
+	<-p.Done()
+
+	return p.GetStatus()
 }
 
 // wait waits for a process to finish running and sets it's final status
@@ -184,12 +177,12 @@ func (p *Process) Signal(sig syscall.Signal) error {
 }
 
 // StdOut returns the standard output streaming channel
-func (p *Process) StdOut() <-chan byte {
+func (p *Process) StdOut() <-chan []byte {
 	return p.streamStdOut
 }
 
 // StdErr returns the standard error streaming channel
-func (p *Process) StdErr() <-chan byte {
+func (p *Process) StdErr() <-chan []byte {
 	return p.streamStdErr
 }
 
@@ -200,11 +193,11 @@ func (p *Process) Done() chan struct{} {
 
 // StreamOutput streams bytes of output through the provided channel
 type StreamOutput struct {
-	streamChan chan byte
+	streamChan chan []byte
 }
 
 // NewStreamOutput returns an instance of a StreamOuput using the provided channel
-func NewStreamOutput(streamChan chan byte) *StreamOutput {
+func NewStreamOutput(streamChan chan []byte) *StreamOutput {
 	s := &StreamOutput{
 		streamChan: streamChan,
 	}
@@ -214,18 +207,16 @@ func NewStreamOutput(streamChan chan byte) *StreamOutput {
 
 // TODO: stream bytes instead of lines
 // Write implements the io.Writer interface for StreamOutput
-func (s *StreamOutput) Write(buf []byte) (int, error) {
-	n := len(buf)
+func (s *StreamOutput) Write(b []byte) (int, error) {
+	n := len(b)
 
-	for _, b := range buf {
-		s.streamChan <- b
-	}
+	s.streamChan <- b
 
 	return n, nil
 }
 
 // Bytes returnes the streaming channel.
 //It's the same channel passed when creating a StreamOutput
-func (s *StreamOutput) Bytes() chan byte {
+func (s *StreamOutput) Bytes() chan []byte {
 	return s.streamChan
 }
