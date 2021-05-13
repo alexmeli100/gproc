@@ -36,11 +36,12 @@ message JobStatus {
   string id              = 1; // the id of the job
   int64 PID              = 2; // the process id of the process running in the system
   string cmd             = 3; // a single string containing the full command and arguments passed in the job request
-  JobState state         = 5; // the current state of the process
-  int64 exitCode         = 6; // the exit code of the process
-  string error           = 7; // the error if any, when the process reached a final state
-  int64 startTime        = 9;
-  int64 stopTime         = 10;
+  JobState state         = 4; // the current state of the process
+  int64 exitCode         = 5; // the exit code of the process
+  string error           = 6; // the error if any, when the process reached a final state
+  int64 startTime        = 7;
+  int64 stopTime         = 8;
+  bool stopByUser        = 9;
 }
 
 enum OutputChannel {
