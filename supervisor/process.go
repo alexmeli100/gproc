@@ -127,8 +127,8 @@ func (p *Process) setState(state ProcessState) {
 
 // IsInitialState is true if process state is Initial
 func (p *Process) IsInitialState() bool {
-	p.stateLock.Lock()
-	defer p.stateLock.Unlock()
+	p.stateLock.RLock()
+	defer p.stateLock.RUnlock()
 
 	return p.state == Initial
 }
