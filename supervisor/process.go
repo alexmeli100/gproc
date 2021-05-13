@@ -1,8 +1,6 @@
 package supervisor
 
 import (
-	"bytes"
-	"fmt"
 	"github.com/pkg/errors"
 	"os/exec"
 	"strings"
@@ -12,8 +10,7 @@ import (
 )
 
 const (
-	DefaultLineBufferSize = 16384
-	DefaultStreamChanSize = 200
+	DefaultStreamChanSize = 16384
 )
 
 var (
@@ -33,8 +30,8 @@ const (
 type Process struct {
 	access       *sync.RWMutex
 	cmd          *exec.Cmd
-	streamStdOut chan string
-	streamStdErr chan string
+	streamStdOut chan byte
+	streamStdErr chan byte
 	stdOut       *StreamOutput
 	stdErr       *StreamOutput
 	status       Status
@@ -64,8 +61,8 @@ func NewProcess(name string, args []string) *Process {
 
 	cmd := exec.Command(name, args...)
 
-	stdOutChan := make(chan string, DefaultStreamChanSize)
-	stdErrChan := make(chan string, DefaultStreamChanSize)
+	stdOutChan := make(chan byte, DefaultStreamChanSize)
+	stdErrChan := make(chan byte, DefaultStreamChanSize)
 	stdOut := NewStreamOutput(stdOutChan)
 	stdErr := NewStreamOutput(stdErrChan)
 	cmd.Stdout = stdOut
@@ -187,12 +184,12 @@ func (p *Process) Signal(sig syscall.Signal) error {
 }
 
 // StdOut returns the standard output streaming channel
-func (p *Process) StdOut() <-chan string {
+func (p *Process) StdOut() <-chan byte {
 	return p.streamStdOut
 }
 
 // StdErr returns the standard error streaming channel
-func (p *Process) StdErr() <-chan string {
+func (p *Process) StdErr() <-chan byte {
 	return p.streamStdErr
 }
 
@@ -201,61 +198,15 @@ func (p *Process) Done() chan struct{} {
 	return p.done
 }
 
-type StreamOutputOptions func(*StreamOutput)
-
-// ErrLineBufferOverflow is an error type returned when the buffer in StreamOutput used to
-// buffer lines is too small. Try increasing the buffer size if you get this error
-type ErrLineBufferOverflow struct {
-	line       string
-	bufferSize int
-	freeBytes  int
-}
-
-func NewErrLineBufferOverflow(line string, bufsize, freeBytes int) ErrLineBufferOverflow {
-	return ErrLineBufferOverflow{
-		line:       line,
-		bufferSize: bufsize,
-		freeBytes:  freeBytes,
-	}
-}
-
-func (e ErrLineBufferOverflow) Error() string {
-	err := fmt.Sprintf(
-		`line does not contain newline and is %d 
-				bytes too long to buffer (buffer size: %d).
-				Try increasing the buffer size to avoid this error`,
-		len(e.line)-e.bufferSize, e.freeBytes)
-
-	return err
-}
-
-// StreamOutput streams lines of output through the provided channel
+// StreamOutput streams bytes of output through the provided channel
 type StreamOutput struct {
-	streamChan chan string
-	bufSize    int
-	buf        []byte
-	lastChar   int
-}
-
-// SetLineBufferSize sets the buffer size of a StreamOutput
-func SetLineBufferSize(size int) StreamOutputOptions {
-	return func(o *StreamOutput) {
-		o.bufSize = size
-		o.buf = make([]byte, size)
-	}
+	streamChan chan byte
 }
 
 // NewStreamOutput returns an instance of a StreamOuput using the provided channel
-func NewStreamOutput(streamChan chan string, opts ...StreamOutputOptions) *StreamOutput {
+func NewStreamOutput(streamChan chan byte) *StreamOutput {
 	s := &StreamOutput{
 		streamChan: streamChan,
-		bufSize:    DefaultLineBufferSize,
-		buf:        make([]byte, DefaultLineBufferSize),
-		lastChar:   0,
-	}
-
-	for _, opt := range opts {
-		opt(s)
 	}
 
 	return s
@@ -263,64 +214,18 @@ func NewStreamOutput(streamChan chan string, opts ...StreamOutputOptions) *Strea
 
 // TODO: stream bytes instead of lines
 // Write implements the io.Writer interface for StreamOutput
-func (s *StreamOutput) Write(b []byte) (int, error) {
-	n := len(b)
-	firstChar := 0
+func (s *StreamOutput) Write(buf []byte) (int, error) {
+	n := len(buf)
 
-	for {
-		// find the next line in the buffer
-		newLineOffset := bytes.IndexByte(b[firstChar:], '\n')
-
-		if newLineOffset < 0 {
-			break // no newlines in stream
-		}
-
-		lastCharOffset := firstChar + newLineOffset
-
-		// check for carriage return and strip it if present
-		if newLineOffset > 0 && b[lastCharOffset-1] == '\r' {
-			lastCharOffset -= 1
-		}
-
-		var line string
-
-		// preprend any lines if buffer is not empty
-		if s.lastChar > 0 {
-			line = string(s.buf[0:s.lastChar])
-			s.lastChar = 0
-		}
-
-		line += string(b[firstChar:lastCharOffset])
-
-		s.streamChan <- line
-		firstChar += newLineOffset + 1
-	}
-
-	if firstChar < n {
-		remainingBytes := len(b[firstChar:])
-		free := len(s.buf[s.lastChar:])
-
-		if remainingBytes > free {
-			var line string
-
-			if s.lastChar > 0 {
-				line = string(s.buf[0:s.lastChar])
-			}
-
-			line += string(b[firstChar:])
-
-			return firstChar, NewErrLineBufferOverflow(line, s.bufSize, free)
-		}
-
-		copy(s.buf[s.lastChar:], b[firstChar:])
-		s.lastChar += remainingBytes
+	for _, b := range buf {
+		s.streamChan <- b
 	}
 
 	return n, nil
 }
 
-// Lines returnes the streaming channel.
+// Bytes returnes the streaming channel.
 //It's the same channel passed when creating a StreamOutput
-func (s *StreamOutput) Lines() chan string {
+func (s *StreamOutput) Bytes() chan byte {
 	return s.streamChan
 }

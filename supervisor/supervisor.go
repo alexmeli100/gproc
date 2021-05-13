@@ -19,11 +19,11 @@ const (
 	StdErr
 )
 
-// LogOutput is a line of output from a running job either
+// LogOutput is a byte of output from a running job either
 // from standard output or stadard error
 type LogOutput struct {
 	Type uint8
-	Msg  string
+	Msg  byte
 }
 
 // Supervisor manages all processes
@@ -254,19 +254,19 @@ func (s *Supervisor) Status(id string) (*JobStatus, error) {
 	return &JobStatus{id, st}, nil
 }
 
-// GetOutput returns the line buffer for the job
+// GetOutput returns the byte buffer for the job
 func (s *Supervisor) GetOutput(id string) ([]LogOutput, error) {
 	s.access.Lock()
 	defer s.access.Unlock()
 
-	lines, ok := s.ouputBuffers[id]
+	bytes, ok := s.ouputBuffers[id]
 
 	if !ok {
 		s.logger.Error("Cannot find job with the given id", zap.String("id", id))
 		return nil, ErrJobNotFound
 	}
 
-	return lines, nil
+	return bytes, nil
 }
 
 // HasJob checks if the job with the given id has been started by the Supervisor
@@ -277,7 +277,7 @@ func (s *Supervisor) HasJob(id string) bool {
 }
 
 // WatchOutput subscribes the caller to the jobs output through the provided channel.
-// It returns all previous lines of output to the caller
+// It returns all previous bytes of output to the caller
 func (s *Supervisor) WatchOutput(id string, c chan LogOutput) ([]LogOutput, error) {
 	s.access.Lock()
 	defer s.access.Unlock()

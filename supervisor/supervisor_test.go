@@ -3,9 +3,6 @@ package supervisor
 import (
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
-	"regexp"
-	"strconv"
-	"sync"
 	"testing"
 	"time"
 )
@@ -101,7 +98,8 @@ func TestGetOutput(t *testing.T) {
 
 	s := NewSupervisor(logger)
 
-	st, err := s.Start("echo", []string{"random message"})
+	msg := "random message"
+	st, err := s.Start("echo", []string{msg})
 
 	if err != nil {
 		t.Fatalf("expected nil error, Got %s", err.Error())
@@ -122,74 +120,20 @@ func TestGetOutput(t *testing.T) {
 		t.Fatalf("expected nil error, Got %s", err.Error())
 	}
 
-	if len(o) != 1 {
-		t.Fatalf("Expected output slice of length 1. Got length %d", len(o))
+	// newline added by echo command
+	if len(msg)+1 != len(o) {
+		t.Fatalf("Expected output slice of length %d. Got length %d", len(msg), len(o))
 	}
 
-	if o[0].Msg != "random message" {
-		t.Errorf("Expected output message \"random message\". Got \"%s\"", o[0].Msg)
-	}
-}
+	var msg2 []byte
 
-func TestOutputStreaming(t *testing.T) {
-	logger := zap.NewNop()
-
-	s := NewSupervisor(logger)
-
-	ch := make(chan LogOutput)
-
-	st, err := s.Start("ping", []string{"localhost"})
-
-	if err != nil {
-		t.Fatalf("expected nil error, Got %s", err.Error())
+	for _, b := range o {
+		msg2 = append(msg2, b.Msg)
 	}
 
-	time.Sleep(5 * time.Second)
-	var chLines []LogOutput
-	lines, err := s.WatchOutput(st.Id, ch)
-
-	m := sync.Mutex{}
-	go func() {
-		for l := range ch {
-			m.Lock()
-			chLines = append(chLines, l)
-			m.Unlock()
-		}
-	}()
-
-	time.Sleep(5 * time.Second)
-	st, err = s.Stop(st.Id)
-
-	if err != nil {
-		t.Fatalf("stop failed with error %s", err.Error())
-	}
-
-	m.Lock()
-	lines = append(lines, chLines...)
-	m.Unlock()
-
-	var seq []int
-
-	pat := regexp.MustCompile(`icmp_seq=(\d+)`)
-
-	if len(lines) < 2 {
-		t.Fatalf("Expected output from process")
-	}
-
-	for _, l := range lines[1:] {
-		match := pat.FindStringSubmatch(l.Msg)
-		a, err := strconv.Atoi(match[1])
-
-		if err != nil {
-			t.Fatalf("Expected number in pattern. Got \"%s\"", match[1])
-		}
-		seq = append(seq, a)
-	}
-
-	for i := 0; i < len(seq)-1; i++ {
-		if seq[i+1]-seq[i] != 1 {
-			t.Errorf("Expected a difference of 1 in icmp seq. Got \"%d\"", seq[i+1]-seq[i])
-		}
+	// newline added by echo command
+	if string(msg2) != "random message\n" {
+		t.Errorf("Expected output message \"random message\". Got \"%s\"", msg2)
 	}
 }
 
