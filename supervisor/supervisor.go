@@ -1,11 +1,9 @@
 package supervisor
 
 import (
-	"fmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
-	"os/exec"
 	"sync"
 )
 
@@ -22,8 +20,8 @@ const (
 // LogOutput is a byte of output from a running job either
 // from standard output or stadard error
 type LogOutput struct {
-	Type uint8
-	Msg  byte
+	Type  uint8
+	Bytes []byte
 }
 
 // Supervisor manages all processes
@@ -107,17 +105,13 @@ func (s *Supervisor) Start(cmd string, args []string) (*JobStatus, error) {
 		return nil, errors.New(msg)
 	}
 
-	_, err := exec.LookPath(cmd)
+	jobId := uuid.New().String()
+	p, err := NewProcess(cmd, args)
 
 	if err != nil {
-		msg := fmt.Sprintf("cannot add job, the system cannot find the given executable \"%s\"", cmd)
-		s.logger.Error(msg)
-		return nil, ErrExecNotFound
+		s.logger.Error("could not start process", zap.Error(err))
+		return nil, err
 	}
-
-	jobId := uuid.New().String()
-	p := NewProcess(cmd, args)
-	p.Start()
 
 	s.wg.Add(1)
 	go func(id string, p *Process) {
