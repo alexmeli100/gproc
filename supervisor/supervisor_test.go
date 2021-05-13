@@ -229,6 +229,7 @@ func TestSupervisorStopAll(t *testing.T) {
 
 }
 
+// Tests that stopping a finished process doesn't do anything and simply returns the final status
 func TestSupervisorStopDeadProc(t *testing.T) {
 	logger := zap.NewNop()
 
@@ -246,46 +247,31 @@ func TestSupervisorStopDeadProc(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Wait for the process to finish
 	<-wait
 
+	// Should return the final status
 	st, err = s.Stop(st.Id)
 
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	wait, err = s.Wait(st.Id)
-
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	<-wait
-
-	st, err = s.Status(st.Id)
-
-	if err != nil {
-		t.Fatalf("expected nil error, Got %s", err.Error())
-	}
-
 	if st.Status.State != Finished {
 		t.Errorf("Expected \"Finished\" state. Got \"%s\"", st.Status.State.String())
 	}
 
+	// test with a long running process
 	st, err = s.Start("ping", []string{"localhost"})
 
 	if err != nil {
 		t.Fatalf("expected nil error, Got %s", err.Error())
 	}
 
-	wait, err = s.Wait(st.Id)
-
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	// wait for the process to run a bit
 	time.Sleep(5 * time.Second)
+
+	// stop and wait for process to finish
 	st, err = s.Stop(st.Id)
 
 	if err != nil {
@@ -300,6 +286,7 @@ func TestSupervisorStopDeadProc(t *testing.T) {
 
 	<-wait
 
+	// Get final status
 	st, err = s.Status(st.Id)
 
 	if err != nil {
