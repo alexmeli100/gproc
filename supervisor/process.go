@@ -168,7 +168,7 @@ func (p *Process) Stop(byUser bool) error {
 
 	p.status.StopByUser = byUser
 
-	return syscall.Kill(-p.cmd.Process.Pid, syscall.SIGTERM)
+	return p.cmd.Process.Signal(syscall.SIGTERM)
 }
 
 // Signal sends an os signal to the process
