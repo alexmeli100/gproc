@@ -16,52 +16,29 @@ const (
 	DefaultStreamChanSize = 200
 )
 
-type ProcessState uint8
-
-const (
-	Initial ProcessState = iota
-	Starting
-	Running
-	Stopping
-	Finished
-	Interrupted
-	Fatal
+var (
+	ErrFailedStopProc   = errors.New("failed to stop process, already in Initial/Final state")
+	ErrFailedSignalProc = errors.New("failed to signal process, already in Initial/Final state")
 )
 
-func (s ProcessState) String() string {
-	switch s {
-	case Initial:
-		return "initial"
-	case Starting:
-		return "starting"
-	case Running:
-		return "running"
-	case Stopping:
-		return "stopping"
-	case Finished:
-		return "finished"
-	case Interrupted:
-		return "interrupted"
-	case Fatal:
-		return "fatal"
-	default:
-		return "unknown"
-	}
-}
+type ProcessState string
+
+const (
+	Running  ProcessState = "running"
+	Finished ProcessState = "finished"
+	Fatal    ProcessState = "failed"
+)
 
 // Process is a wrapper around exec.Cmd to run linux processes
 type Process struct {
-	*sync.Mutex
+	access       *sync.RWMutex
 	cmd          *exec.Cmd
 	streamStdOut chan string
 	streamStdErr chan string
 	stdOut       *StreamOutput
 	stdErr       *StreamOutput
-	state        ProcessState
 	status       Status
-	statusChan   chan Status
 	done         chan struct{}
-	stateLock    *sync.RWMutex
 }
 
 // Status is the status of a process
@@ -71,8 +48,8 @@ type Status struct {
 	State      ProcessState
 	Error      error
 	ExitCode   int
-	StartTime  int64
-	StopTime   int64
+	StartTime  time.Time
+	StopTime   time.Time
 	StopByUser bool
 }
 
@@ -81,11 +58,8 @@ func NewProcess(name string, args []string) *Process {
 	a := strings.Join(args, " ")
 
 	status := Status{
-		Cmd:        name + " " + a,
-		PID:        0,
-		Error:      nil,
-		ExitCode:   -1,
-		StopByUser: false,
+		Cmd:      name + " " + a,
+		ExitCode: -1,
 	}
 
 	cmd := exec.Command(name, args...)
@@ -94,13 +68,15 @@ func NewProcess(name string, args []string) *Process {
 	stdErrChan := make(chan string, DefaultStreamChanSize)
 	stdOut := NewStreamOutput(stdOutChan)
 	stdErr := NewStreamOutput(stdErrChan)
+	cmd.Stdout = stdOut
+	cmd.Stderr = stdErr
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	process := &Process{
 		cmd:          cmd,
 		status:       status,
 		done:         make(chan struct{}),
-		Mutex:        &sync.Mutex{},
-		stateLock:    &sync.RWMutex{},
+		access:       &sync.RWMutex{},
 		streamStdOut: stdOutChan,
 		streamStdErr: stdErrChan,
 		stdOut:       stdOut,
@@ -108,85 +84,36 @@ func NewProcess(name string, args []string) *Process {
 	}
 
 	return process
-
 }
 
-// setState sets the state of a process
-func (p *Process) setState(state ProcessState) {
-	p.stateLock.Lock()
-	defer p.stateLock.Unlock()
+// Wait waits for the process to finish running and returns the final status
+func (p *Process) Wait() Status {
+	<-p.Done()
 
-	// cannot the set the state of a finished process
-	if p.state == Finished || p.state == state {
-		return
-	}
-
-	p.state = state
-	p.status.State = p.state
-}
-
-// IsInitialState is true if process state is Initial
-func (p *Process) IsInitialState() bool {
-	p.stateLock.RLock()
-	defer p.stateLock.RUnlock()
-
-	return p.state == Initial
-}
-
-// IsRunningState is true if process is Starting or Running
-func (p *Process) IsRunningState() bool {
-	p.stateLock.RLock()
-	defer p.stateLock.RUnlock()
-
-	return p.state == Running || p.state == Starting
-}
-
-// IsFinalState is true if process is Finished or Interrupted
-func (p *Process) IsFinalState() bool {
-	p.stateLock.RLock()
-	defer p.stateLock.RUnlock()
-
-	return p.state == Finished || p.state == Interrupted
+	return p.GetStatus()
 }
 
 // Start starts the process and returns a channel the caller can
 // use to retrieve the final status
-func (p *Process) Start() <-chan Status {
-	p.Lock()
-	defer p.Unlock()
+func (p *Process) Start() {
+	p.access.Lock()
+	defer p.access.Unlock()
 
-	if p.statusChan != nil {
-		return p.statusChan
-	}
-
-	p.statusChan = make(chan Status, 1)
-	p.setState(Starting)
-
-	p.cmd.Stdout = p.stdOut
-	p.cmd.Stderr = p.stdErr
-
-	p.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
-	now := time.Now()
+	p.status.StartTime = time.Now()
 	if err := p.cmd.Start(); err != nil {
 		// process failed to start.
 		// exit immediately
-		p.status.StartTime = now.UnixNano()
-		p.status.StopTime = time.Now().UnixNano()
+		p.status.StopTime = time.Now()
 		p.status.Error = err
-		p.setState(Fatal)
-		p.statusChan <- p.status
+		p.status.State = Fatal
 		close(p.done)
 
-		return p.statusChan
+		return
 	}
 
-	p.status.StartTime = now.UnixNano()
 	p.status.PID = p.cmd.Process.Pid
-	p.setState(Running)
+	p.status.State = Running
 	go p.wait()
-
-	return p.statusChan
 }
 
 // wait waits for a process to finish running and sets it's final status
@@ -194,7 +121,6 @@ func (p *Process) wait() {
 	// send the final status and close done channel to signal to
 	// goroutines the process has finished running
 	defer func() {
-		p.statusChan <- p.GetStatus()
 		close(p.done)
 	}()
 
@@ -202,22 +128,19 @@ func (p *Process) wait() {
 	now := time.Now()
 	exitCode := 0
 
-	p.Lock()
-	defer p.Unlock()
+	p.access.Lock()
+	defer p.access.Unlock()
 
 	// get the exit code of the process
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			err = nil
+			exitCode = exitErr.ExitCode()
 
 			if status, ok := exitErr.Sys().(syscall.WaitStatus); ok {
-				exitCode = status.ExitStatus()
-
 				if status.Signaled() {
 					err = errors.New(exitErr.Error())
-					p.setState(Interrupted)
 				}
-
 			}
 		}
 	}
@@ -225,28 +148,27 @@ func (p *Process) wait() {
 	// set final status of the process
 	p.status.Error = err
 	p.status.ExitCode = exitCode
-	p.status.StopTime = now.UnixNano()
-	p.setState(Finished)
+	p.status.StopTime = now
+	p.status.State = Finished
 }
 
 // GetStatus returns the current status of the process
 func (p *Process) GetStatus() Status {
-	p.Lock()
-	defer p.Unlock()
+	p.access.RLock()
+	defer p.access.RUnlock()
 
 	return p.status
 }
 
 // Stop stops a process by sending it's group a SIGTERM signal
 func (p *Process) Stop(byUser bool) error {
-	p.Lock()
-	defer p.Unlock()
+	p.access.Lock()
+	defer p.access.Unlock()
 
-	if p.IsInitialState() || p.IsFinalState() {
-		return nil
+	if p.status.State != Running {
+		return ErrFailedStopProc
 	}
 
-	p.setState(Stopping)
 	p.status.StopByUser = byUser
 
 	return syscall.Kill(-p.cmd.Process.Pid, syscall.SIGTERM)
@@ -254,27 +176,23 @@ func (p *Process) Stop(byUser bool) error {
 
 // Signal sends an os signal to the process
 func (p *Process) Signal(sig syscall.Signal) error {
-	p.Lock()
-	defer p.Unlock()
+	p.access.Lock()
+	defer p.access.Unlock()
 
-	if p.IsInitialState() || p.IsFinalState() {
-		return nil
-	}
-
-	if sig == syscall.SIGTERM {
-		p.setState(Stopping)
+	if p.status.State != Running {
+		return ErrFailedSignalProc
 	}
 
 	return syscall.Kill(-p.cmd.Process.Pid, sig)
 }
 
 // StdOut returns the standard output streaming channel
-func (p *Process) StdOut() chan string {
+func (p *Process) StdOut() <-chan string {
 	return p.streamStdOut
 }
 
 // StdErr returns the standard error streaming channel
-func (p *Process) StdErr() chan string {
+func (p *Process) StdErr() <-chan string {
 	return p.streamStdErr
 }
 

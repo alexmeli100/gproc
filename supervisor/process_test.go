@@ -8,7 +8,7 @@ import (
 func TestProcessBasicStartStop(t *testing.T) {
 	p := NewProcess("ping", []string{"localhost"})
 
-	_ = p.Start()
+	p.Start()
 
 	time.Sleep(5 * time.Second)
 
@@ -18,12 +18,10 @@ func TestProcessBasicStartStop(t *testing.T) {
 		t.Errorf("Expected nil error. Got %s", err.Error())
 	}
 
-	<-p.Done()
-
-	st := p.GetStatus()
+	st := p.Wait()
 
 	if st.State != Finished {
-		t.Errorf("Expected final state \"finished\", got \"%s\"", st.State.String())
+		t.Errorf("Expected final state \"finished\", got \"%s\"", st.State)
 	}
 }
 
@@ -31,15 +29,13 @@ func TestProcessOk(t *testing.T) {
 	p := NewProcess("echo", []string{"line1"})
 	now := time.Now().Unix()
 
-	if p.state != Initial {
-		t.Errorf("got state %d, expected Initial", p.state)
-	}
-
-	s := <-p.Start()
+	p.Start()
 	line := <-p.StdOut()
 
-	if s.StartTime < now {
-		t.Errorf("Start time %d", s.StartTime)
+	s := p.Wait()
+
+	if s.StartTime.Unix() < now {
+		t.Errorf("Start time %d", s.StartTime.Unix())
 	}
 
 	if line != "line1" {

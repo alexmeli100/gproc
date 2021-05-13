@@ -102,7 +102,7 @@ func (l *logWatchers) removeLogWatcher(c chan LogOutput) {
 // A unique id is generated for the job and returned in JobStatus
 func (s *Supervisor) Start(cmd string, args []string) (*JobStatus, error) {
 	if cmd == "" {
-		msg := "cannot add job, no executable defined"
+		msg := "cannot start job, no executable defined"
 		s.logger.Error(msg)
 		return nil, errors.New(msg)
 	}
@@ -117,13 +117,13 @@ func (s *Supervisor) Start(cmd string, args []string) (*JobStatus, error) {
 
 	jobId := uuid.New().String()
 	p := NewProcess(cmd, args)
-	sc := p.Start()
+	p.Start()
 
 	s.wg.Add(1)
-	go func(id string, p *Process, c <-chan Status) {
+	go func(id string, p *Process) {
 		defer s.wg.Done()
-		s.run(id, p, sc)
-	}(jobId, p, sc)
+		s.run(id, p)
+	}(jobId, p)
 
 	s.logger.Info("Added Job: ",
 		zap.String("id", jobId),
@@ -143,7 +143,7 @@ func (s *Supervisor) Start(cmd string, args []string) (*JobStatus, error) {
 
 // run listens for output from the running job through it's StdOut and StdErr channels.
 // Each line of output is first added to the job's line buffer before it's sent to the log watchers.
-func (s *Supervisor) run(id string, proc *Process, sc <-chan Status) {
+func (s *Supervisor) run(id string, proc *Process) {
 	go func(id string, p *Process) {
 		for {
 			select {
@@ -172,7 +172,7 @@ func (s *Supervisor) run(id string, proc *Process, sc <-chan Status) {
 		}
 	}(id, proc)
 
-	fs := <-sc
+	fs := proc.Wait()
 
 	if fs.ExitCode != 0 || fs.Error != nil {
 		// process didn't exit successfully. Log the error
