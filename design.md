@@ -102,8 +102,7 @@ All TLS 1.3 cipher suites are supported
 Keys are generated using 4096 bit RSA
 
 ### Authorization
-When starting a job, the server assigns the job to the client using the common name of it's cerficate. A client can stop, get the status and get the output of a job it owns. Attempting to perform any of these operations for a job not owned by the client results in an `UNAUTHOURIZED` error.
+When starting a job, the server assigns the job to the client using the common name of it's cerficate. A client can stop, get the status and get the output of a job it owns. Attempting to perform any of these operations for a job not owned by the client results in an `NOT_FOUDN` error.
 
 ## Some Notes
 * A docker container will be provided to easily start and run the grpc server.
-
