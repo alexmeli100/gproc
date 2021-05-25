@@ -7,7 +7,7 @@ service WorkerService {
   rpc Start        (JobRequest         ) returns (JobStatus       ) {}
   rpc Status       (StatusRequest      ) returns (JobStatus       ) {}
   rpc Stop         (StopRequest        ) returns (JobStatus       ) {}
-  rpc GetOuput     (GetOutputRequest   ) returns (stream JobOutput) {}
+  rpc GetOutput    (GetOutputRequest   ) returns (stream JobOutput) {}
 }
 
 message StatusRequest {
@@ -23,7 +23,7 @@ message GetOutputRequest {
 }
 
 message JobOutput {
-  string output = 1;
+  bytes          output = 1;
   OutputChannel channel = 2;
 }
 
