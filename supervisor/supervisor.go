@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"context"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
@@ -8,8 +9,7 @@ import (
 )
 
 var (
-	ErrJobNotFound  = errors.New("invalid job id")
-	ErrExecNotFound = errors.New("executable not found on system")
+	ErrJobNotFound = errors.New("invalid job id")
 )
 
 const (
@@ -225,7 +225,7 @@ func (s *Supervisor) StopAll() {
 	s.jobs.Range(func(id, j interface{}) bool {
 		job := j.(*Process)
 
-		if err := job.Stop(false); err != nil {
+		if err := job.Stop(false); err != nil && err != ErrNotRunningProc {
 			s.logger.Error("Cannot stop process", zap.String("id", id.(string)))
 		}
 
@@ -272,26 +272,59 @@ func (s *Supervisor) HasJob(id string) bool {
 
 // WatchOutput subscribes the caller to the jobs output through the provided channel.
 // It returns all previous bytes of output to the caller
-func (s *Supervisor) WatchOutput(id string, c chan LogOutput) ([]LogOutput, error) {
+func (s *Supervisor) WatchOutput(ctx context.Context, id string) (<-chan LogOutput, error) {
+	out := make(chan LogOutput)
+
 	s.access.Lock()
 	defer s.access.Unlock()
 
-	if !s.HasJob(id) {
+	j, ok := s.jobs.Load(id)
+
+	if !ok {
 		s.logger.Error("cannot find job with the given id", zap.String("id", id))
 		return nil, ErrJobNotFound
 	}
 
+	job := j.(*Process)
+
 	m := s.outputChannels[id]
 
+	buffs := s.ouputBuffers[id]
+	c := make(chan LogOutput, len(buffs))
 	m.addWatcher(c)
-	lines := s.ouputBuffers[id]
 
-	return lines, nil
+	go func() {
+		defer func() {
+			s.unWatchOutput(id, out)
+			close(out)
+		}()
+
+		for _, b := range buffs {
+			select {
+			case out <- b:
+			case <-ctx.Done():
+				return
+			}
+		}
+
+		for {
+			select {
+			case buf := <-c:
+				out <- buf
+			case <-ctx.Done():
+				return
+			case <-job.Done():
+				return
+			}
+		}
+	}()
+
+	return out, nil
 }
 
 // UnWatchOutput unsubscribes the caller from the jobs channel.
 // The provided channel must be the one passed to WatchOutput
-func (s *Supervisor) UnWatchOutput(id string, c chan LogOutput) {
+func (s *Supervisor) unWatchOutput(id string, c chan LogOutput) {
 	s.access.Lock()
 	defer s.access.Unlock()
 

@@ -14,7 +14,7 @@ const (
 )
 
 var (
-	ErrFailedStopProc   = errors.New("failed to stop process, already in Initial/Final state")
+	ErrNotRunningProc   = errors.New("failed to stop process, already in Initial/Final state")
 	ErrFailedSignalProc = errors.New("failed to signal process, already in Initial/Final state")
 )
 
@@ -156,7 +156,7 @@ func (p *Process) Stop(byUser bool) error {
 	defer p.access.Unlock()
 
 	if p.status.State != Running {
-		return ErrFailedStopProc
+		return ErrNotRunningProc
 	}
 
 	p.status.StopByUser = byUser
@@ -210,7 +210,10 @@ func NewStreamOutput(streamChan chan []byte) *StreamOutput {
 func (s *StreamOutput) Write(b []byte) (int, error) {
 	n := len(b)
 
-	s.streamChan <- b
+	buf := make([]byte, len(b))
+	copy(buf, b)
+
+	s.streamChan <- buf
 
 	return n, nil
 }
